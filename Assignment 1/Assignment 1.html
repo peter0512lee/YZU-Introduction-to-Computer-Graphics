@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>three.js webgl - geometry - cube</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<style>
+		body {
+			margin: 0px;
+			background-color: #000000;
+			overflow: hidden;
+		}
+
+		#info {
+			position: absolute;
+			left: 1em;
+			top: 1em;
+			background: rgba(0, 0, 0, .8);
+			padding: .5em;
+			color: white;
+			font-family: monospace;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="info"></div>
+	<script src="three.js/build/three.r89.min.js"></script>
+	<script src="js/controls/OrbitControls.js"></script>
+	<script src="js/libs/dat.gui.min.js"></script>
+	<script src="js/threex.keyboardstate.js"></script>
+
+
+	<script>
+		"use strict"; //help catch errors
+		var controls;
+		var light, light2, light3;
+		var camera, scene, renderer;
+		var tank, bodyMesh, wheelMeshes, domeMesh, turretPivot;
+		var clock = new THREE.Clock();
+		var params;
+		var tankCamera;
+		var monster;
+		var bombBool;
+		var tankBool = false;
+		//var time = false;
+		var bombs = [];
+		var monsters = [];
+
+		var gravity = -9.8; // 向上為正
+		var heading = 0;
+		var barrelheading = 0;
+		var score = 0;
+		var lastTime;
+		var time = 0, timeBool = false;
+		var monsterSpeed = 0.5;
+		var monsterNumber = 1;
+		var monsterSecond = 5;
+		var monsterDistance = 100;
+		var bombVelocity = 2;
+
+		var keyboard = new THREEx.KeyboardState();
+
+		var infoElem = document.querySelector('#info');
+		var startGame = false;
+
+		init();
+
+		lastTime = Date.now();
+
+		animate();
+
+		function init() {
+
+			bombBool = false;
+
+			camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 10, 5000);
+			camera.position.y = 500;
+			camera.position.z = 400;
+
+			scene = new THREE.Scene();
+
+			// create a light
+			light = new THREE.DirectionalLight(0xffffff);
+			light.position.set(100, 200, 400);
+			scene.add(light);
+			light2 = new THREE.DirectionalLight(0xffffff);
+			light2.position.set(-400, 200, -400);
+			scene.add(light2);
+			light3 = new THREE.DirectionalLight(0xffffff);
+			light3.position.set(100, -400, -400);
+			scene.add(light3);
+
+			// add a ground plane
+			var planeTexture = new THREE.TextureLoader().load('textures/UV_Grid_Sm.jpg');
+			var planeGeometry = new THREE.PlaneGeometry(1000, 1000);
+			var planeMaterial = new THREE.MeshPhongMaterial({ map: planeTexture, side: THREE.DoubleSide });
+			var plane = new THREE.Mesh(planeGeometry, planeMaterial);
+			plane.rotation.x = -90 * Math.PI / 180;
+			plane.position.y = 0.0;
+			scene.add(plane);
+
+			// add axis helper
+			var axisHelper = new THREE.AxesHelper(200);
+			scene.add(axisHelper);
+
+			//add tank
+			tank = new THREE.Object3D();
+			tankBool = true;
+			scene.add(tank);
+
+			// add body in the tank
+			const carWidth = 40;
+			const carHeight = 30;
+			const carLength = 60;
+			var bodyTexture = new THREE.TextureLoader().load('textures/crate.gif');
+			var bodyGeometry = new THREE.BoxBufferGeometry(carWidth, carHeight, carLength);
+			var bodyMaterial = new THREE.MeshPhongMaterial({ map: bodyTexture });
+			bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+			bodyMesh.position.y = 25;
+			tank.add(bodyMesh);
+
+			//add wheel in the tank
+			const wheelRadius = 10;
+			const wheelThickness = 5;
+			const wheelSegments = 60;
+			const wheelTexture = new THREE.TextureLoader().load('textures/tire.jpg');
+			const wheelGeometry = new THREE.CylinderBufferGeometry(
+				wheelRadius,     // top radius
+				wheelRadius,     // bottom radius
+				wheelThickness,  // height of cylinder
+				wheelSegments);
+			const wheelMaterial = new THREE.MeshPhongMaterial({ map: wheelTexture });
+			const wheelPositions = [
+				[-carWidth / 2 - wheelThickness / 2, -carHeight / 2, carLength / 3],
+				[carWidth / 2 + wheelThickness / 2, -carHeight / 2, carLength / 3],
+				[-carWidth / 2 - wheelThickness / 2, -carHeight / 2, -carLength / 3],
+				[carWidth / 2 + wheelThickness / 2, -carHeight / 2, -carLength / 3],
+			];
+
+			wheelMeshes = wheelPositions.map((position) => {
+				const mesh = new THREE.Mesh(wheelGeometry, wheelMaterial);
+				mesh.position.set(...position);
+				mesh.rotation.z = Math.PI * .5;
+				bodyMesh.add(mesh);
+				return mesh;
+			});
+
+			//add dome in the tank
+			const domeMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
+			const domeGeometry = new THREE.SphereBufferGeometry(16, 32, 16);
+			domeMesh = new THREE.Mesh(domeGeometry, domeMaterial);
+			domeMesh.position.y = 15;
+			domeMesh.rotation.y = 90 * Math.PI / 180;
+			bodyMesh.add(domeMesh);
+
+			//add turret in the tank
+			const turretWidth = 1;
+			const turretHeight = 1;
+			const turretLength = carLength * .25 * .5;
+			const turretGeometry = new THREE.BoxBufferGeometry(
+				turretWidth, turretHeight, turretLength);
+			const turretMaterial = new THREE.MeshPhongMaterial({ color: 0x008888 });
+			const turretMesh = new THREE.Mesh(turretGeometry, turretMaterial);
+			turretPivot = new THREE.Object3D();
+			turretPivot.scale.set(7, 7, 7);
+			turretPivot.position.y = 20;
+			turretMesh.position.z = turretLength * 0.1;
+			turretMesh.rotation.x = 150 * Math.PI / 180;
+			turretPivot.add(turretMesh);
+			bodyMesh.add(turretPivot);
+
+			renderer = new THREE.WebGLRenderer();
+
+			// set the background color to gray
+			renderer.setClearColor(0xa0a0a0);
+
+			renderer.setPixelRatio(window.devicePixelRatio);
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			document.body.appendChild(renderer.domElement);
+
+			// let's have the mouse affect the view
+			controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+			tankCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 10, 5000);
+			scene.add(tankCamera);
+
+			window.addEventListener('resize', onWindowResize, false);
+
+			var gui;
+			var guiMe = function () { //default params values
+				this.Time = time;
+				this.Score = score;
+				this.Heading = heading;
+				this.BarrelHeading = barrelheading;
+				this.MonsterSpeed = monsterSpeed;
+				this.MonsterNumber = monsterNumber;
+				this.MonsterSecond = monsterSecond;
+				this.MonsterDistance = monsterDistance;
+				this.addSpeed = 20;
+				this.RotSpeed = 20;
+				this.BarrelRotSpeed = 20;
+				this.FollowMe = false;
+			};
+
+			// add some GUI
+			params = new guiMe();
+			gui = new dat.GUI();
+
+			gui.add(params, 'Time').listen();
+			gui.add(params, 'Score').listen();
+			gui.add(params, 'Heading').listen();
+			gui.add(params, 'BarrelHeading').listen();
+			gui.add(params, 'MonsterSpeed', 0.5, 2);
+			gui.add(params, 'MonsterNumber', 1, 5);	//一次生幾個怪
+			gui.add(params, 'MonsterSecond', 1, 5);	//多久生成一次
+			gui.add(params, 'MonsterDistance', 100, 400);
+			gui.add(params, 'addSpeed', 0, 30);
+			gui.add(params, 'RotSpeed', 0, 30);
+			gui.add(params, 'BarrelRotSpeed', 0, 30)
+			gui.add(params, 'FollowMe');
+			gui.open();
+
+			window.onkeydown = function (event) {
+				var key = String.fromCharCode(event.keyCode);
+				switch (key) {
+					case 'w': case 'W':
+						//velocity += params.addSpeed;
+						//params.Velocity = velocity;
+						break;
+					case 's': case 'S':
+						break;
+					case 'a': case 'A':
+						break;
+					case 'd': case 'D':
+						break;
+					case '%':
+						break;
+					case "'":
+						break;
+					case " ":
+						bombBool = true;
+						break;
+					case 'j': case 'J':
+						break;
+				}
+			};
+		}
+
+		function onWindowResize() {
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+			renderer.setSize(window.innerWidth, window.innerHeight);
+		}
+
+		function animate() {
+			requestAnimationFrame(animate);
+
+			if (!timeBool) {
+				time = clock.getElapsedTime();
+			}
+
+			lastTime = Date.now();
+
+			var moveDistance = params.addSpeed / 5; // 200 pixels per second
+			var rotateAngle = params.RotSpeed / 500;
+			var barrelRotateAngle = params.BarrelRotSpeed / 500;   // pi/2 radians (90 degrees) per second
+
+			// move tank
+			if (keyboard.pressed("W")) {
+				tank.translateZ(moveDistance);
+				wheelMeshes.forEach((obj) => {
+					obj.rotation.x = lastTime / 200;
+				});
+			}
+			if (keyboard.pressed("S")) {
+				tank.translateZ(-moveDistance);
+				wheelMeshes.forEach((obj) => {
+					obj.rotation.x = lastTime / 200;
+				});
+			}
+			if (keyboard.pressed("A")) {
+				tank.rotation.y += rotateAngle;
+				wheelMeshes[1].rotation.x = -lastTime / 200;
+				wheelMeshes[3].rotation.x = -lastTime / 200;
+				wheelMeshes[0].rotation.x = lastTime / 200;
+				wheelMeshes[2].rotation.x = lastTime / 200;
+
+			}
+			if (keyboard.pressed("D")) {
+				tank.rotation.y += -rotateAngle;
+				wheelMeshes[1].rotation.x = lastTime / 200;
+				wheelMeshes[3].rotation.x = lastTime / 200;
+				wheelMeshes[0].rotation.x = -lastTime / 200;
+				wheelMeshes[2].rotation.x = -lastTime / 200;
+
+			}
+
+			// move turret
+			if (keyboard.pressed("left")) {
+				turretPivot.rotation.y += barrelRotateAngle;
+			}
+			if (keyboard.pressed("right")) {
+				turretPivot.rotation.y += -barrelRotateAngle;
+			}
+
+			if (keyboard.pressed("R")) {
+				tank.position.set(0, 0, 0);
+				tank.rotation.set(0, 0, 0);
+				tankBool = true;
+				time = clock.start();
+				score = 0;
+				for (let i = 0; i < monsters.length; i++) {
+					scene.remove(monsters[i]);
+					monsters.splice(i, 1);
+				}
+				scene.add(tank);
+			}
+
+			if (bombBool) {
+				bombBool = false;
+				var startTime = Date.now();
+				var totalRatation = tank.rotation.y + turretPivot.rotation.y;
+				const bombGeometry = new THREE.SphereBufferGeometry(6, 36, 36);
+				const bombMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
+				var bomb = new THREE.Mesh(bombGeometry, bombMaterial);
+				bomb.position.x = tank.position.x + 20 * Math.sin(totalRatation);
+				bomb.position.y = 57;
+				bomb.position.z = tank.position.z + 20 * Math.cos(totalRatation);
+				scene.add(bomb);
+				var bombInf = { bomb, totalRatation, startTime };
+				bombs.push(bombInf);
+			}
+			for (let i = 0; i < bombs.length; i++) {
+				bombs[i].bomb.position.x += Math.sin(bombs[i].totalRatation) * 10;
+				bombs[i].bomb.position.z += Math.cos(bombs[i].totalRatation) * 10;
+				bombs[i].bomb.position.y += (10 * Math.sin(Math.PI * 15 / 180.0) + gravity * (Date.now() - bombs[i].startTime) * 0.001);
+				if (bombs[i].bomb.position.y < 0) {
+					scene.remove(bombs[i].bomb);
+					bombs.splice(i, 1);
+				}
+			}
+
+			if (!startGame)
+				infoElem.textContent = 'Game start!';
+
+			if (!startGame && time % params.MonsterSecond > 0.54 && time % params.MonsterSecond < 0.56) {
+				//params.Time = time;
+				createMonster();
+			}
+
+			moveMonster();
+
+			hit();
+
+			collision();
+
+			if (!tankBool) {
+				tankBool = true;
+				infoElem.textContent = 'You Die!, Press R to restart!';
+				time = clock.stop();
+				scene.remove(tank);
+			}
+
+			// Camera now following the tank
+			controls.enableKeys = false;
+			var relativeCameraOffset = new THREE.Vector3(0, 400, -400);
+			var cameraOffset = relativeCameraOffset.applyMatrix4(tank.matrixWorld);
+			tankCamera.position.x = cameraOffset.x;
+			tankCamera.position.y = cameraOffset.y;
+			tankCamera.position.z = cameraOffset.z;
+			tankCamera.lookAt(tank.position);
+			if (params.FollowMe)
+				renderer.render(scene, tankCamera);
+			if (!params.FollowMe)
+				renderer.render(scene, camera);
+
+			//update
+			params.Time = time;
+			params.Score = score;
+			heading = (tank.rotation.y / Math.PI * 180.0) % 360;
+			if (heading < 0) heading += 360;
+			barrelheading = ((turretPivot.rotation.y / Math.PI * 180.0) + heading) % 360;
+			if (barrelheading < 0) barrelheading += 360;
+			params.Heading = heading;
+			params.BarrelHeading = barrelheading;
+
+			// have the mouse update the view
+			controls.update();
+
+		}
+
+		function createMonster() {
+			for (let i = 0; i < params.MonsterNumber; i++) {
+				var monsterTexture = new THREE.TextureLoader().load('textures/question.jpg');
+				var monsterGeometry = new THREE.BoxBufferGeometry(50, 50, 50);
+				var monsterMaterial = new THREE.MeshPhongMaterial({ map: monsterTexture });
+				monster = new THREE.Mesh(monsterGeometry, monsterMaterial);
+
+				var randomNum;
+				var DistanceX = tank.position.x + params.MonsterDistance;
+				var DistanceXR = tank.position.x - params.MonsterDistance;
+				if (DistanceX >= 450) {
+					DistanceZ = 450;
+				}
+				var DistanceZ = tank.position.z + params.MonsterDistance;
+				var DistanceZR = tank.position.z - params.MonsterDistance;
+				if (DistanceZ >= 450) {
+					DistanceZ = 450;
+				}
+
+				while (true) {
+					randomNum = generateRandomInteger(-450, 450);
+					if (randomNum != 0 && randomNum > DistanceX ||
+						randomNum != 0 && randomNum < DistanceXR) {
+						monster.position.x = randomNum;
+						break;
+					}
+				}
+
+				monster.position.y = 25.1;
+
+				while (true) {
+					randomNum = generateRandomInteger(-450, 450);
+					if (randomNum != 0 && randomNum > DistanceZ ||
+						randomNum != 0 && randomNum < DistanceZR) {
+						monster.position.z = randomNum;
+						break;
+					}
+				}
+
+				monster.lookAt(tank.position.x, 25.1, tank.position.z);
+				scene.add(monster);
+				monsters.push(monster);
+
+			}
+		}
+
+		function moveMonster() {
+			for (let i = 0; i < monsters.length; i++) {
+				monsters[i].lookAt(tank.position.x, 25.1, tank.position.z);
+				if (monsters[i].position.x < tank.position.x) {
+					monsters[i].position.x += params.MonsterSpeed;
+				}
+				if (monsters[i].position.z < tank.position.z) {
+					monsters[i].position.z += params.MonsterSpeed;
+				}
+				if (monsters[i].position.x > tank.position.x) {
+					monsters[i].position.x -= params.MonsterSpeed;
+				}
+				if (monsters[i].position.z > tank.position.z) {
+					monsters[i].position.z -= params.MonsterSpeed;
+				}
+			}
+		}
+
+		function hit() {
+			for (let j = 0; j < bombs.length; j++) {
+				for (let i = 0; i < monsters.length; i++) {
+					if (bombs[j].bomb.position.x <= monsters[i].position.x + 50 && bombs[j].bomb.position.x >= monsters[i].position.x - 50) {
+						if (bombs[j].bomb.position.z <= monsters[i].position.z + 50 && bombs[j].bomb.position.z >= monsters[i].position.z - 50) {
+							scene.remove(monsters[i]);
+							monsters.splice(i, 1);
+							score += 10;
+						}
+					}
+				}
+			}
+		}
+
+		function collision() {
+			for (let i = 0; i < monsters.length; i++) {
+				if (tank.position.x <= monsters[i].position.x + 50 && tank.position.x >= monsters[i].position.x - 50) {
+					if (tank.position.z <= monsters[i].position.z + 50 && tank.position.z >= monsters[i].position.z - 50) {
+						tankBool = false;
+					}
+				}
+			}
+		}
+
+		function generateRandomInteger(min, max) {
+			return Math.floor(min + Math.random() * (max + 1 - min))
+		}
+
+
+	</script>
+</body>
+
+</html>
